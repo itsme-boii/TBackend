@@ -19,7 +19,11 @@ const pool = mysql.createPool(
         host: process.env.MYSQL_HOST,
         user: process.env.MYSQL_USER,
         password: process.env.MYSQL_PASSWORD,
-        database: process.env.MYSQL_DATABASE
+        database: process.env.MYSQL_DATABASE,
+        port: 25141,
+        ssl:{
+            rejectUnauthorized:false
+        }
     }
 ).promise();
 
@@ -460,6 +464,22 @@ app.post('/requestPromNight', verifyToken, async (req, res) => {
         const { receiverId } = req.body; // ID of the person to whom the request is sent
         const senderId = req.userId;      // ID of the person sending the request
 
+        const [existingAcceptedRequest] = await pool.query(
+            "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+            [senderId, senderId]
+        );
+        if (existingAcceptedRequest.length > 0) {
+            return res.status(409).json({ message: 'You are already matched with someone' });
+        }
+
+        const [receiverAcceptedRequest] = await pool.query(
+            "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+            [receiverId, receiverId]
+        );
+        if (receiverAcceptedRequest.length > 0) {
+            return res.status(409).json({ message: 'The requested user is already matched with someone' });
+        }
+
         // Check if the requested user exists
         const [userExists] = await pool.query("SELECT * FROM users WHERE id = ?", [receiverId]);
         if (userExists.length === 0) {
@@ -488,37 +508,60 @@ app.post('/requestPromNight', verifyToken, async (req, res) => {
     }
 });
 
-// Accept Prom Night
+
+// Accept Prom Night Request
 app.post('/acceptPromNight', verifyToken, async (req, res) => {
-    const { requestId } = req.body; // Change this to requestId
-    const requestedId = req.userId;   
+    const { requestId } = req.body;
+    const requestedId = req.userId;
 
-    // Query to get the requesterId based on requestId
-    const [pendingRequest] = await pool.query(
-        "SELECT requester_id FROM prom_night_requests WHERE id = ? AND requested_id = ? AND status = 'pending'",
-        [requestId, requestedId]
-    );
-    if (pendingRequest.length === 0) {
-        return res.status(404).json({ message: 'No pending request found' });
+    try {
+        // Check if the requested user has already accepted a match
+        const [existingAcceptedRequest] = await pool.query(
+            "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+            [requestedId, requestedId]
+        );
+        if (existingAcceptedRequest.length > 0) {
+            return res.status(409).json({ message: 'You are already matched with someone' });
+        }
+
+        // Find the pending request and requester
+        const [pendingRequest] = await pool.query(
+            "SELECT requester_id FROM prom_night_requests WHERE id = ? AND requested_id = ? AND status = 'pending'",
+            [requestId, requestedId]
+        );
+        if (pendingRequest.length === 0) {
+            return res.status(404).json({ message: 'No pending request found' });
+        }
+
+        const requesterId = pendingRequest[0].requester_id;
+
+        // Check if the requester is already matched with someone else
+        const [requesterAcceptedRequest] = await pool.query(
+            "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+            [requesterId, requesterId]
+        );
+        if (requesterAcceptedRequest.length > 0) {
+            return res.status(409).json({ message: 'Requester is already matched with someone' });
+        }
+
+        // Accept the request
+        await pool.query(
+            "UPDATE prom_night_requests SET status = 'accepted' WHERE id = ?",
+            [requestId]
+        );
+
+        // Cancel all other pending requests for both users
+        await pool.query(
+            "UPDATE prom_night_requests SET status = 'canceled' WHERE (requester_id = ? OR requested_id = ?) AND status = 'pending'",
+            [requesterId, requestedId]
+        );
+
+        res.status(200).json({ message: 'Prom night request accepted!' });
+    } catch (error) {
+        console.error("Error accepting prom night request:", error);
+        res.status(500).json({ message: 'Server error' });
     }
-
-    const requesterId = pendingRequest[0].requester_id; // Extract the requesterId from the response
-
-    // Accept the request
-    await pool.query(
-        "UPDATE prom_night_requests SET status = 'accepted' WHERE id = ?",
-        [requestId]
-    );
-
-    // Cancel all other pending requests for both users
-    await pool.query(
-        "UPDATE prom_night_requests SET status = 'canceled' WHERE (requester_id = ? OR requested_id = ?) AND status = 'pending'",
-        [requesterId, requestedId]
-    );
-
-    res.status(200).json({ message: 'Prom night request accepted!' });
 });
-
 
 
 // Cancel Prom Night
@@ -545,8 +588,6 @@ app.post('/cancelPromNight', verifyToken, async (req, res) => {
 
     res.status(200).json({ message: 'Prom night request canceled!' });
 });
-
-
 
 // Check Prom Night Requests
 app.get('/promnight/check/:userId', async (req, res) => {
