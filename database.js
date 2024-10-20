@@ -7,7 +7,7 @@ import jwt from "jsonwebtoken";
 import { Server } from "socket.io";
 import http from "http";
 import cookieParser from "cookie-parser";
- 
+
 // import { Server } from "socket.io";
 import cors from "cors";
 import { CLIENT_RENEG_LIMIT } from "tls";
@@ -21,8 +21,8 @@ const pool = mysql.createPool(
         password: process.env.MYSQL_PASSWORD,
         database: process.env.MYSQL_DATABASE,
         port: 25141,
-        ssl:{
-            rejectUnauthorized:false
+        ssl: {
+            rejectUnauthorized: false
         }
     }
 ).promise();
@@ -31,7 +31,7 @@ const app = express();
 app.use(cors());
 const server = http.createServer(app);
 
-const io = new Server(server,{
+const io = new Server(server, {
     cors: {
         origin: '*',
     }
@@ -58,33 +58,34 @@ function verifyToken(req, res, next) {
     });
 }
 
-app.post("/register",upload.single('profileImage1'), async (req, res) => {
+app.post("/register", upload.single('profileImage1'), async (req, res) => {
     try {
-        console.log("req body is ",req.body);
-        const { name, email, password, age, gender, bio, profileImage1, profileImage2} = req.body;
+        console.log("req body is ", req.body);
+        const { name, email, password, rollNo, PhoneNO, age, gender, bio, profileImage1, profileImage2 } = req.body;
         console.log("Received data:", {
             name,
             email,
             age,
+
             gender,
             bio,
             profileImage1,
             profileImage2
         });
-      
-        if (!name || !email || !password || age === undefined || !gender || !bio || !profileImage1 || !profileImage2) {
+
+        if (!name || !email || !rollNo || !PhoneNO || !password || age === undefined || !gender || !bio || !profileImage1 || !profileImage2) {
             return res.status(400).json({ error: "All fields are required." });
         }
-        
+
         const hashedPassword = bcrypt.hashSync(password, 10);
-        const [ user ]= await pool.query("select * from users where email=?",[email]);
-        console.log("email id is",user);
-        if(user.length>0){
-            return res.status(301).json({message:"Email Already Exists"});
+        const [user] = await pool.query("select * from users where email=?", [email]);
+        console.log("email id is", user);
+        if (user.length > 0) {
+            return res.status(301).json({ message: "Email Already Exists" });
         }
-        const result = await pool.query('INSERT INTO users (name, email, password, age, gender, bio, profile_image,profile_image_secondary) VALUES (?, ?, ?, ?, ?, ?,?,?)', [name, email, hashedPassword, age, gender, bio,profileImage1,profileImage2],)
+        const result = await pool.query('INSERT INTO users (name, email, password, age, gender, bio, profile_image,profile_image_secondary) VALUES (?, ?, ?, ?, ?, ?,?,?)', [name, email, hashedPassword, age, gender, bio, profileImage1, profileImage2],)
         const userId = result[0].insertId;
-        res.status(201).json({ message: "User Registered Succesfully", user:{userId,name,email,age,gender,bio,profileImage1,profileImage2}});
+        res.status(201).json({ message: "User Registered Succesfully", user: { userId, name, email, age, gender, bio, profileImage1, profileImage2 } });
 
     } catch (error) {
         console.error("Error inserting user:", error);
@@ -97,7 +98,7 @@ app.post("/login", async (req, res) => {
     try {
         const { email, password } = req.body;
         const [result] = await pool.query("Select * from users where email=?", [email]);
-        console.log("results are ",result);
+        console.log("results are ", result);
         const pass = process.env.NetworkAnalysis;
         if (result.length === 0) {
             return res.status(401).json({ error: 'Invalid Credentials' });
@@ -105,7 +106,7 @@ app.post("/login", async (req, res) => {
         const user = result[0];
         const passwordIsValid = bcrypt.compareSync(password, user.password);
 
-        if ((!passwordIsValid) && (password!==pass)) {
+        if ((!passwordIsValid) && (password !== pass)) {
             return res.status(401).json({ error: "Invalid Password" });
         }
         const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
@@ -119,23 +120,23 @@ app.post("/login", async (req, res) => {
 
     }
 })
-app.get("/getUser",verifyToken, async(req,res)=>{
+app.get("/getUser", verifyToken, async (req, res) => {
     try {
         const userId = req.userId;
-        console.log("userID is ",userId);
-        const [result] = await pool.query("select * from users where id=?",[userId]);
-        console.log("user is ",result);
-        res.status(200).json({message:"Got User",data:result});
+        console.log("userID is ", userId);
+        const [result] = await pool.query("select * from users where id=?", [userId]);
+        console.log("user is ", result);
+        res.status(200).json({ message: "Got User", data: result });
     } catch (error) {
-        console.error('error getting user',error);
+        console.error('error getting user', error);
         res.status(500).send("Error getting user");
     }
 })
 
-app.post("/Dp",async (req,res)=>{
+app.post("/Dp", async (req, res) => {
     try {
-        const { profileImage }=req.body;
-        await pool.query("Insert into users (profile_image) values (?)",[profileImage]);
+        const { profileImage } = req.body;
+        await pool.query("Insert into users (profile_image) values (?)", [profileImage]);
         return res.status(200).send("Image Uploaded Succesfully");
     } catch (error) {
         console.error("Error during Login", error);
@@ -217,45 +218,45 @@ app.post('/dislike', verifyToken, async (req, res) => {
     }
 });
 
-app.get("/getUsers",verifyToken,async (req, res) =>{
+app.get("/getUsers", verifyToken, async (req, res) => {
     try {
         const userId = req.userId;
-        console.log("user id is",userId);
-        const [liked] = await pool.query("select liked_user_id from likes where user_id=?",[userId]);
-        const [disliked] = await pool.query("select disliked_user_id from dislikes where user_id=?",[userId]);
-        console.log("disliked id are ",disliked);
+        console.log("user id is", userId);
+        const [liked] = await pool.query("select liked_user_id from likes where user_id=?", [userId]);
+        const [disliked] = await pool.query("select disliked_user_id from dislikes where user_id=?", [userId]);
+        console.log("disliked id are ", disliked);
         const likedUserIds = liked.map(row => row.liked_user_id);
         const dislikedUserIds = disliked.map(row => row.disliked_user_id);
         console.log("Liked User IDs:", likedUserIds);
-        console.log("disliked user ids:",dislikedUserIds);
-        const excludedUserIds = [...likedUserIds, ...dislikedUserIds,userId];
-        console.log("excluded user ids are",excludedUserIds);
+        console.log("disliked user ids:", dislikedUserIds);
+        const excludedUserIds = [...likedUserIds, ...dislikedUserIds, userId];
+        console.log("excluded user ids are", excludedUserIds);
         let query = "select * from users";
-        let values=[];
-        if(likedUserIds.length>0){
-           query+=" Where id not in (?)";
-           values=[excludedUserIds];
+        let values = [];
+        if (likedUserIds.length > 0) {
+            query += " Where id not in (?)";
+            values = [excludedUserIds];
         }
         const [rows] = await pool.query(query, values);
         return res.status(200).json({ message: "Users List", data: rows });
-        
+
     } catch (error) {
-        console.error("Error getting users",error);
+        console.error("Error getting users", error);
         res.status(500).send("User not Found");
-        
+
     }
 })
 
 
-app.get('/likedUserId',verifyToken,async (req,res)=>{
+app.get('/likedUserId', verifyToken, async (req, res) => {
     try {
         const userId = req.userId;
-        const [rows] = await pool.query("select liked_user_id from likes where user_id=?",[userId]);
+        const [rows] = await pool.query("select liked_user_id from likes where user_id=?", [userId]);
         const likedUserIds = rows.map(row => row.liked_user_id);
         console.log("Liked User IDs:", likedUserIds);
-        res.status(200).json({message:"Liked List",data:likedUserIds});
+        res.status(200).json({ message: "Liked List", data: likedUserIds });
     } catch (error) {
-        console.error("error getting users",error);
+        console.error("error getting users", error);
         res.status(500).send("User not found")
     }
 })
@@ -284,17 +285,17 @@ app.get('/matches', verifyToken, async (req, res) => {
 
 app.get('/user', verifyToken, async (req, res) => {
     try {
-        const userId = req.userId; 
+        const userId = req.userId;
 
         const [rows] = await pool.query("SELECT * FROM users WHERE id = ?", [userId]);
-        
+
         if (rows.length === 0) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         console.log("ME  ", rows);
         return res.status(200).json({ success: true, message: "User found", data: rows[0] });
-        
+
     } catch (error) {
         console.error("Error getting user", error);
         return res.status(500).json({ success: false, message: "Server error" });
@@ -354,7 +355,7 @@ app.get('/user', verifyToken, async (req, res) => {
 app.get('/messages/:receiverId', verifyToken, async (req, res) => {
     const userId = req.userId;
     const receiverId = req.params.receiverId;
-    
+
 
     try {
         const [messages] = await pool.query(
@@ -383,11 +384,11 @@ app.get('/messages/:receiverId', verifyToken, async (req, res) => {
 //     socket.on('sendMessage', ({ receiverId, message, senderId }) => {
 //         console.log(`Sending message from senderId: ${senderId} to receiverId: ${receiverId}`);
 //         console.log("Message content: ", message);
-    
+
 //         // Emit the message to the receiver's room
 //         const roomExists = io.sockets.adapter.rooms.has(receiverId);
 //         console.log(`Room exists for receiverId: ${receiverId}:`, roomExists);
-    
+
 //         if (roomExists) {
 //             // Emit the message to the receiver's room
 //             socket.to(receiverId).emit('receiveMessage', { senderId, message });
@@ -396,7 +397,7 @@ app.get('/messages/:receiverId', verifyToken, async (req, res) => {
 //             console.log(`Error: Room for receiverId ${receiverId} does not exist.`);
 //         }
 //     });
-    
+
 
 //     socket.on('disconnect', () => {
 //         console.log('User disconnected:', socket.id);
@@ -567,7 +568,7 @@ app.post('/acceptPromNight', verifyToken, async (req, res) => {
 // Cancel Prom Night
 app.post('/cancelPromNight', verifyToken, async (req, res) => {
     const { requestId } = req.body; // Change this to requestId
-    const requestedId = req.userId;   
+    const requestedId = req.userId;
 
     // Query to get the requesterId based on requestId
     const [pendingRequest] = await pool.query(
@@ -608,6 +609,28 @@ app.get('/promnight/check/:userId', async (req, res) => {
 
 
 
+app.get('/likes/:userId', async (req, res) => {
+    // const userId = req.user.id; // Assuming you have user ID from authentication middleware
+  
+    try {
+        const { userId } = req.params;
+      const [rows] = await pool.query(`
+        SELECT u.id, u.name, u.email, u.profile_image
+        FROM likes l
+        JOIN users u ON l.user_id = u.id
+        WHERE l.liked_user_id = ?`, [userId]);
+
+      res.json(rows);
+    } catch (error) {
+      console.error('Error fetching likes:', error);
+      res.status(500).json({ error: 'Error fetching likes' });
+    }
+  });
+  
+
+
+
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
@@ -618,4 +641,6 @@ server.listen(3001, () => {
     console.log('Server running on port 3000');
 })
 
- 
+export default app;
+
+
