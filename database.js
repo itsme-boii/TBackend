@@ -9,6 +9,8 @@ import http from "http";
 import cookieParser from "cookie-parser";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
+import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
 
 // import { Server } from "socket.io";
 import cors from "cors";
@@ -51,8 +53,8 @@ const upload = multer({ dest: 'uploads/' });
 const transporter = nodemailer.createTransport({
     service: 'Gmail', // or any other email service
     auth: {
-        user: "kumawatnishantk@gmail.com",
-        pass: "khas jpxm hfdh zcuh",
+        user: "communications@springfest.in",
+        pass: "ofms vheh aqwy crpg",
     }
 });
 
@@ -76,11 +78,10 @@ function verifyToken(req, res, next) {
 app.post("/register", upload.single('profileImage1'), async (req, res) => {
     try {
         console.log("req body is ", req.body);
-        const { name, email, password, rollNo, year, hall, PhoneNo, age, gender, bio, profileImage1, profileImage2 } = req.body;
+        const { recaptchaToken, name, email, password, rollNo, year, hall, PhoneNo, gender, bio, profileImage1, profileImage2, termsAccepted } = req.body;
         console.log("Received data:", {
             name,
             email,
-            age,
             rollNo,
             hall,
             year,
@@ -88,11 +89,34 @@ app.post("/register", upload.single('profileImage1'), async (req, res) => {
             bio,
             PhoneNo,
             profileImage1,
-            profileImage2
+            profileImage2,
+            termsAccepted
         });
 
-        // Validate required fields
-        if (!name || !year || !hall || !email || !rollNo || !PhoneNo || !password || age === undefined || !gender || !bio || !profileImage1 || !profileImage2) {
+        if (!process.env.RECAPTCHA_SECRET_KEY) {
+            return res.status(500).json({ error: "Server misconfiguration: reCAPTCHA secret key is missing." });
+        }
+
+        // Validate terms acceptance
+        if (!termsAccepted) {
+            return res.status(400).json({ error: "You must accept the terms and conditions." });
+        }
+
+        // reCAPTCHA validation
+        const flattenedRecaptchaToken = Array.isArray(recaptchaToken) ? recaptchaToken.flat()[0] : recaptchaToken;
+        if (!flattenedRecaptchaToken) {
+            return res.status(400).json({ error: "reCAPTCHA token is missing or invalid" });
+        }
+
+        const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
+            params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: flattenedRecaptchaToken },
+        });
+        
+        if (!recaptchaResponse.data.success) {
+            return res.status(401).json({ error: "reCAPTCHA verification failed" });
+        }
+
+        if (!name || !year || !hall || !email || !rollNo || !PhoneNo || !password || !gender || !bio || !profileImage1 || !profileImage2) {
             return res.status(400).json({ error: "All fields are required." });
         }
 
@@ -103,13 +127,12 @@ app.post("/register", upload.single('profileImage1'), async (req, res) => {
         );
 
         if (existingUser.length > 0) {
-            // Determine which field already exists
             if (existingUser.some(user => user.email === email)) {
                 return res.status(409).json({ message: "Email already exists." });
-            } else if (existingUser.some(user => user.PhoneNo === PhoneNo)) {
-                return res.status(409).json({ message: "Phone number already exists." });
+            } else if (existingUser.some(user => user.phoneNo === PhoneNo)) {
+                return res.status(408).json({ message: "Phone number already exists." });
             } else if (existingUser.some(user => user.rollNo === rollNo)) {
-                return res.status(409).json({ message: "Roll number already exists." });
+                return res.status(407).json({ message: "Roll number already exists." });
             }
         }
 
@@ -118,8 +141,8 @@ app.post("/register", upload.single('profileImage1'), async (req, res) => {
 
         // Insert new user
         const result = await pool.query(
-            'INSERT INTO users (name, year, PhoneNo, rollNo, email, password, age, gender, bio, profile_image, profile_image_secondary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [name, year, PhoneNo, rollNo, email, hashedPassword, age, gender, bio, profileImage1, profileImage2]
+            'INSERT INTO users (name, year, PhoneNo, hall, rollNo, email, password, gender, bio, profile_image, profile_image_secondary, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [name, year, PhoneNo, hall, rollNo, email, hashedPassword, gender, bio, profileImage1, profileImage2, termsAccepted]
         );
 
         const userId = result[0].insertId;
@@ -127,7 +150,7 @@ app.post("/register", upload.single('profileImage1'), async (req, res) => {
         // Respond with success
         res.status(201).json({
             message: "User Registered Successfully",
-            user: { userId, name, rollNo, year, hall, PhoneNo, email, age, gender, bio, profileImage1, profileImage2 }
+            user: { userId, name, rollNo, year, hall, PhoneNo, email, gender, bio, profileImage1, profileImage2, termsAccepted }
         });
 
     } catch (error) {
@@ -177,37 +200,85 @@ app.post("/login", async (req, res) => {
 // })
 
 
+app.post("/forgot-password", async (req, res) => {
+	try {
+		const { email, newPassword, recaptchaToken } = req.body;
+
+		// Validate the reCAPTCHA
+		const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
+			params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: recaptchaToken },
+		});
+
+		if (!recaptchaResponse.data.success) {
+			return res.status(401).json({ error: "reCAPTCHA verification failed" });
+		}
+
+		// Check if the user exists
+		const [user] = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
+		if (user.length === 0) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		// Hash the new password
+		const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+		// Update the user's password in the database
+		await pool.query("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email]);
+
+		res.status(200).json({ message: "Password has been updated successfully" });
+	} catch (error) {
+		console.error("Error updating password", error);
+		res.status(500).json({ error: "Internal server error" });
+	}
+});
+
+
 app.get("/getUsers", verifyToken, async (req, res) => {
     try {
         const userId = req.userId;
         console.log("user id is", userId);
-        
+
         const [user] = await pool.query("SELECT gender FROM users WHERE id = ?", [userId]);
-        const currentUserGender = user[0].gender;
+        // const currentUserGender = user[0].gender;
+        const currentUserGender = user[0].gender.toLowerCase();
         let oppositeGender;
 
-     
+        // Set opposite gender or genders
         if (currentUserGender === 'male') {
             oppositeGender = 'female';
         } else if (currentUserGender === 'female') {
             oppositeGender = 'male';
+        } else if (currentUserGender === 'others') {
+            oppositeGender = ['male', 'female'];   // Select both genders
         } else {
             return res.status(400).json({ message: "Invalid gender" });
         }
- 
+
+        // Fetch liked and disliked users
         const [liked] = await pool.query("SELECT liked_user_id FROM likes WHERE user_id = ?", [userId]);
         const [disliked] = await pool.query("SELECT disliked_user_id FROM dislikes WHERE user_id = ?", [userId]);
-        
+
         const likedUserIds = liked.map(row => row.liked_user_id);
         const dislikedUserIds = disliked.map(row => row.disliked_user_id);
         const excludedUserIds = [...likedUserIds, ...dislikedUserIds, userId];
 
-       
-        let query = "SELECT * FROM users WHERE gender = ? AND id NOT IN (?)";
-        const values = [oppositeGender, excludedUserIds];
+        // Prepare SQL query and parameters
+        let query;
+        let values;
 
+        // Handle case for 'others' gender
+        if (Array.isArray(oppositeGender)) {
+            query = "SELECT * FROM users WHERE gender IN (?, ?) AND id NOT IN (?)";
+            values = [...oppositeGender, excludedUserIds];
+        } else {
+            query = "SELECT * FROM users WHERE gender = ? AND id NOT IN (?)";
+            values = [oppositeGender, excludedUserIds];
+        }
+
+        // Execute query
         const [rows] = await pool.query(query, values);
 
+        // Return the result
         return res.status(200).json({ message: "Users List", data: rows });
 
     } catch (error) {
@@ -215,6 +286,7 @@ app.get("/getUsers", verifyToken, async (req, res) => {
         res.status(500).send("User not Found");
     }
 });
+
 
 
 app.post("/Dp", async (req, res) => {
@@ -387,9 +459,6 @@ app.get('/user', verifyToken, async (req, res) => {
 });
 
 
-
-
-// Add this API to fetch chat history between two users
 app.get('/messages/:receiverId', verifyToken, async (req, res) => {
     const userId = req.userId;
     const receiverId = req.params.receiverId;
@@ -429,75 +498,187 @@ app.get('/messages/:receiverId', verifyToken, async (req, res) => {
 //     socket.on('error', (error) => {
 //         console.error('Socket error:', error);
 //       });
-      
+
 
 //     socket.on('disconnect', () => {
 //         console.log('User disconnected:', socket.id);
 //     });
 // });
 
- 
+
 
 // Server-side code using Node.js and Socket.io
-io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+const users = {};
+const lastSeen = {};
 
+// io.on('connection', (socket) => {
+//     console.log('A user connected', socket.id);
+
+//     socket.on('registerUser', (userId) => {
+//         users[userId] = socket.id;
+//         console.log(`User with userId: ${userId} registered with socket id: ${socket.id}`);
+//     });
+
+//     socket.on('sendMessage', (data) => {
+//         const { receiverId, message, sender_id } = data;
+//         const receiverSocketId = users[receiverId];
+
+//         if (receiverSocketId) {
+//             // Receiver is connected, send the message
+//             io.to(receiverSocketId).emit('receiveMessage', { message, sender_id });
+//         } else {
+//             console.log(`User with receiverId: ${receiverId} not connected`);
+//         }
+//     });
+
+//     socket.on('disconnect', () => {
+//         // Remove the socket when the user disconnects
+//         for (let userId in users) {
+//             if (users[userId] === socket.id) {
+//                 delete users[userId];
+//                 console.log(`User with userId: ${userId} disconnected`);
+//                 break;
+//             }
+//         }
+//     });
+// });
+
+
+/// try to add last seen blur tick 
+
+io.on('connection', (socket) => {
+    console.log('A user connected', socket.id);
 
     socket.on('registerUser', (userId) => {
-        console.log(userId)
-        socket.userId = userId;  // Store the userId with the socket
-        console.log(`Registering user with userId: ${userId}`);
+        users[userId] = socket.id;
+        console.log(`User with userId: ${userId} registered with socket id: ${socket.id}`);
     });
 
-    // Listen for sendMessage events
-    socket.on('sendMessage', ({ senderId, receiverId, message }) => {
-        console.log(`Message from ${senderId} to ${receiverId}: ${message}`);
-console.log(receiverId)
-        // Find the receiver's socket and emit the message to them
-        const receiverSocket = [...io.sockets.sockets.values()].find(
-            (s) => s.userId === receiverId
-        );
 
 
-        const allSockets = [...io.sockets.sockets.values()].map(s => ({ id: s.id, userId: s.userId }));
-// console.log("Connected sockets:", allSockets);
+    ///////////seen blue tick
+    socket.on('markAsSeen', (data) => {
+        const { senderId, messageId } = data;
+        if (users[senderId]) {
+            io.to(users[senderId]).emit('messageSeen', { messageId });
+        }
+    })
 
 
-        console.log(receiverSocket)
+    // send message 
+    socket.on('sendMessage', (data) => {
+        const { receiverId, message, sender_id } = data;
+        const receiverSocketId = users[receiverId];
 
-        if (receiverSocket) {
-            receiverSocket.emit('receiveMessage', { senderId, message });
-            console.log(`Message emitted to receiverId: ${receiverId}`);
+        if (receiverSocketId) {
+            // Receiver is connected, send the message
+            io.to(receiverSocketId).emit('receiveMessage', { message, sender_id });
+            io.to(socket.id).emit('messageDelivered', { receiverId });
         } else {
             console.log(`User with receiverId: ${receiverId} not connected`);
+            io.to(socket.id).emit('receiverOffline', { receiverId });
+        }
+    });
+
+
+
+    ///////// disconnect 
+
+    socket.on('disconnect', () => {
+
+        for (let userId in users) {
+            if (users[userId] === socket.id) {
+
+                delete users[userId];
+                lastSeen[userId] = new Date();
+                console.log(`User with userId: ${userId} disconnected`);
+                socket.broadcast.emit('userOffline', { userId, lastSeen: lastSeen[userId] });
+                break;
+            }
         }
     });
 });
 
+// app.post('/send-message', verifyToken, async (req, res) => {
+//     const { receiverId, message } = req.body;
+//     const sender_id = req.userId;
+
+//     try {
+//         // Check if users are matched
+//         const [matchCheck] = await pool.query(
+//             'SELECT * FROM matches WHERE (user_one_id = ? AND user_two_id = ?) OR (user_one_id = ? AND user_two_id = ?)',
+//             [sender_id, receiverId, receiverId, sender_id]
+//         );
+
+//         console.log(`sender_id: ${sender_id}, ReceiverId: ${receiverId} - Match check: `, matchCheck);
+
+//         if (matchCheck.length === 0) {
+//             return res.status(400).json({ message: 'You can only message matched users.' });
+//         }
+
+
+//         await pool.query('INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)', [sender_id, receiverId, message]);
+
+
+//         // io.to(receiverId).emit('receiveMessage', { senderId, message });
+//         // console.log(`Message emitted to receiverId: ${receiverId} with content: "${message}"`);
+
+//         const receiverSocket = [...io.sockets.sockets.values()].find(
+//             (s) => s.userId === receiverId
+//         );
+
+//         if (receiverSocket) {
+//             receiverSocket.emit('receiveMessage', { sender_id, message });
+//             console.log(`Message emitted to receiverId: ${receiverId} with content: "${message}"`);
+//         }
+
+
+//         res.status(201).json({ message: 'Message sent successfully!' });
+//     } catch (error) {
+//         console.error("Error sending message:", error);
+//         res.status(500).json({ message: 'Server error' });
+//     }
+// });
+
 
 app.post('/send-message', verifyToken, async (req, res) => {
     const { receiverId, message } = req.body;
-    const senderId = req.userId;
+    const sender_id = req.userId;
 
     try {
         // Check if users are matched
         const [matchCheck] = await pool.query(
             'SELECT * FROM matches WHERE (user_one_id = ? AND user_two_id = ?) OR (user_one_id = ? AND user_two_id = ?)',
-            [senderId, receiverId, receiverId, senderId]
+            [sender_id, receiverId, receiverId, sender_id]
         );
 
-        console.log(`SenderId: ${senderId}, ReceiverId: ${receiverId} - Match check: `, matchCheck);
+        console.log(`sender_id: ${sender_id}, ReceiverId: ${receiverId} - Match check: `, matchCheck);
 
         if (matchCheck.length === 0) {
             return res.status(400).json({ message: 'You can only message matched users.' });
         }
 
-        // Insert the message into the database
-        await pool.query('INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)', [senderId, receiverId, message]);
+        // Insert the message into the database with default delivered and seen status
+        const [result] = await pool.query(
+            'INSERT INTO messages (sender_id, receiver_id, message, delivered, seen) VALUES (?, ?, ?, ?, ?)',
+            [sender_id, receiverId, message, 0, 0] // Set delivered and seen to 0 initially
+        );
 
-        // Emit the message to the receiver through Socket.io
-        io.to(receiverId).emit('receiveMessage', { senderId, message });
-        console.log(`Message emitted to receiverId: ${receiverId} with content: "${message}"`);
+        const messageId = result.insertId; // Get the ID of the newly inserted message
+
+        // Find the receiver's socket
+        const receiverSocket = [...io.sockets.sockets.values()].find(
+            (s) => s.userId === receiverId
+        );
+
+        if (receiverSocket) {
+            // Emit the message to the receiver
+            receiverSocket.emit('receiveMessage', { sender_id, message, messageId });
+            console.log(`Message emitted to receiverId: ${receiverId} with content: "${message}"`);
+
+            // Optionally, update the delivered status in the database
+            await pool.query('UPDATE messages SET delivered = 1 WHERE id = ?', [messageId]);
+        }
 
         res.status(201).json({ message: 'Message sent successfully!' });
     } catch (error) {
@@ -507,7 +688,6 @@ app.post('/send-message', verifyToken, async (req, res) => {
 });
 
 
-// Request Prom Night
 app.post('/requestPromNight', verifyToken, async (req, res) => {
     try {
         const { receiverId } = req.body; // ID of the person to whom the request is sent
@@ -517,6 +697,15 @@ app.post('/requestPromNight', verifyToken, async (req, res) => {
             "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
             [senderId, senderId]
         );
+        const [existingPendingRequest] = await pool.query(
+            "SELECT * FROM prom_invitations WHERE (sender_id = ?) AND status = 'accepted'",
+            [senderId, senderId]
+        )
+
+        if (existingPendingRequest.length > 0) {
+            return res.status(409).json({ message: 'You are already matched with someone' });
+        }
+
         if (existingAcceptedRequest.length > 0) {
             return res.status(409).json({ message: 'You are already matched with someone' });
         }
@@ -557,8 +746,6 @@ app.post('/requestPromNight', verifyToken, async (req, res) => {
     }
 });
 
-
-// Accept Prom Night Request
 app.post('/acceptPromNight', verifyToken, async (req, res) => {
     const { requestId } = req.body;
     const requestedId = req.userId;
@@ -570,6 +757,15 @@ app.post('/acceptPromNight', verifyToken, async (req, res) => {
             [requestedId, requestedId]
         );
         if (existingAcceptedRequest.length > 0) {
+            return res.status(409).json({ message: 'You are already matched with someone' });
+        }
+
+        const [existingPendingRequest] = await pool.query(
+            "SELECT * FROM prom_invitations WHERE (sender_id = ?) AND status = 'accepted'",
+            [senderId, senderId]
+        )
+
+        if (existingPendingRequest.length > 0) {
             return res.status(409).json({ message: 'You are already matched with someone' });
         }
 
@@ -612,8 +808,6 @@ app.post('/acceptPromNight', verifyToken, async (req, res) => {
     }
 });
 
-
-// Cancel Prom Night
 app.post('/cancelPromNight', verifyToken, async (req, res) => {
     const { requestId } = req.body; // Change this to requestId
     const requestedId = req.userId;
@@ -638,7 +832,6 @@ app.post('/cancelPromNight', verifyToken, async (req, res) => {
     res.status(200).json({ message: 'Prom night request canceled!' });
 });
 
-// Check Prom Night Requests
 app.get('/promnight/check/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
@@ -655,32 +848,115 @@ app.get('/promnight/check/:userId', async (req, res) => {
     }
 });
 
-
-
 app.get('/likes/:userId', async (req, res) => {
     // const userId = req.user.id; // Assuming you have user ID from authentication middleware
-  
+
     try {
         const { userId } = req.params;
-      const [rows] = await pool.query(`
+        const [rows] = await pool.query(`
         SELECT u.id, u.name, u.email, u.profile_image
         FROM likes l
         JOIN users u ON l.user_id = u.id
         WHERE l.liked_user_id = ?`, [userId]);
 
-      res.json(rows);
+        res.json(rows);
     } catch (error) {
-      console.error('Error fetching likes:', error);
-      res.status(500).json({ error: 'Error fetching likes' });
+        console.error('Error fetching likes:', error);
+        res.status(500).json({ error: 'Error fetching likes' });
     }
-  });
-  
+});
+
+// app.post('/invitePromPartner', verifyToken, async (req, res) => {
+//     try {
+//         const { partnerName, partnerEmail } = req.body;
+//         const senderId = req.userId;
+
+//         const [senderDetails] = await pool.query(
+//             "SELECT name, email, rollNo FROM users WHERE id = ?",
+//             [senderId]
+//         );
+
+//         if (senderDetails.length === 0) {
+//             return res.status(404).json({ message: 'Sender not found' });
+//         }
+
+//         const { name: senderName, email: senderEmail, rollNo: senderRollNo } = senderDetails[0];
+
+
+//         // Check if the user already has an accepted match
+//         const [existingAcceptedRequest] = await pool.query(
+//             "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+//             [senderId, senderId]
+//         );
+//         if (existingAcceptedRequest.length > 0) {
+//             return res.status(409).json({ message: 'You are already matched with someone' });
+//         }
+
+//         // partner id 
+
+
+//         const [existingPartnerRequest] = await pool.query(
+//             "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+//             [partnerEmail, partnerEmail]
+//         );
+//         if (existingPartnerRequest.length > 0) {
+//             return res.status(411).json({ message: 'Your partner is already matched with someone else' });
+//         }
+
+
+//         const uniqueCode = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+
+
+//         await pool.query(
+//             "INSERT INTO prom_invitations (sender_id, partner_name, partner_email, invite_code) VALUES (?, ?, ?, ?)",
+//             [senderId, partnerName, partnerEmail, uniqueCode]
+//         );
+
+
+//         const inviteLink = `https://prom-iota.vercel.app/prom-invite/${uniqueCode}`;
+
+
+//         const mailOptions = {
+//             from: "kumawatnishantk@gmail.com",
+//             to: partnerEmail,
+//             subject: "You're Invited to Prom Night!",
+//             text: `Hello ${partnerName},\n\nYou have been invited to Prom Night by ${senderName} (Email: ${senderEmail}, Roll No: ${senderRollNo}).\n\nPlease click on the link below to confirm your participation and fill out your details (name, hall, year, phone number):\n\n${inviteLink}\n\nIf you are a new user, an account will be created for you after successfully filling out the form.\n\nEmail address: ${partnerEmail}\n\nPassword: ${uniqueCode}\n\nThe invitation will expire once the form is completed.\n\nBest regards,\nProm Night Team`
+//         };
+
+//         transporter.sendMail(mailOptions, (error, info) => {
+//             if (error) {
+//                 console.error("Error sending email:", error);
+//                 return res.status(500).json({ message: 'Error sending email' });
+//             }
+//             console.log("Email sent:", info.response);
+//             res.status(200).json({ message: 'Invitation sent successfully!' });
+//         });
+
+//     } catch (error) {
+//         console.error("Error inviting prom partner:", error);
+//         res.status(500).json({ message: 'Server error' });
+//     }
+// });
+
+
 app.post('/invitePromPartner', verifyToken, async (req, res) => {
     try {
         const { partnerName, partnerEmail } = req.body;
         const senderId = req.userId;
 
-        // Check if the user already has an accepted match
+        // Retrieve sender's details
+        const [senderDetails] = await pool.query(
+            "SELECT name, email, rollNo FROM users WHERE id = ?",
+            [senderId]
+        );
+
+        if (senderDetails.length === 0) {
+            return res.status(404).json({ message: 'Sender not found' });
+        }
+
+        const { name: senderName, email: senderEmail, rollNo: senderRollNo } = senderDetails[0];
+
+        // Check if the sender already has an accepted match
         const [existingAcceptedRequest] = await pool.query(
             "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
             [senderId, senderId]
@@ -689,24 +965,56 @@ app.post('/invitePromPartner', verifyToken, async (req, res) => {
             return res.status(409).json({ message: 'You are already matched with someone' });
         }
 
-        // Generate a unique code for this invitation
-        const uniqueCode = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+        // Check if the partner exists in the users table
+        const [existingPartner] = await pool.query(
+            "SELECT id FROM users WHERE email = ?",
+            [partnerEmail]
+        );
 
-        // Insert the invitation into the database
+        let partnerId;
+
+        if (existingPartner.length > 0) {
+            // Partner exists, retrieve their ID
+            partnerId = existingPartner[0].id;
+
+            // Check if the partner is already matched with someone
+            const [existingPartnerRequest] = await pool.query(
+                "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+                [partnerId, partnerId]
+            );
+            if (existingPartnerRequest.length > 0) {
+                return res.status(409).json({ message: 'Your partner is already matched with someone else' });
+            }
+        }
+        // If the partner doesn't exist or not matched with anyone, send the email
+        // Generate a unique invitation code
+        let uniqueCode;
+        let isUniqueCode = false;
+        while (!isUniqueCode) {
+            uniqueCode = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+            const [existingInvite] = await pool.query(
+                "SELECT * FROM prom_invitations WHERE invite_code = ?",
+                [uniqueCode]
+            );
+            isUniqueCode = existingInvite.length === 0;
+        }
+
+        // Insert the invitation into the prom_invitations table
         await pool.query(
             "INSERT INTO prom_invitations (sender_id, partner_name, partner_email, invite_code) VALUES (?, ?, ?, ?)",
             [senderId, partnerName, partnerEmail, uniqueCode]
         );
 
-        // Create the invitation link
+        // Generate the invitation link
         const inviteLink = `https://prom-iota.vercel.app/prom-invite/${uniqueCode}`;
+        const link = 'https://prom-iota.vercel.app/';
 
-        // Send the invitation email
+        // Prepare and send the email to the partner
         const mailOptions = {
-            from: process.env.EMAIL_USER,
+            from: "prom@springfest.in",
             to: partnerEmail,
             subject: "You're Invited to Prom Night!",
-            text: `Hello ${partnerName},\n\nYou have been invited to Prom Night! Please click on the link below to confirm your participation and fill out your details (name, hall, year, phone number):\n\n${inviteLink}\n\nThe invitation will expire once the form is completed.\n\nBest regards,\nProm Night Team`
+            text: `Hello ${partnerName},\n\nYou have been invited to Prom Night by ${senderName} (Email: ${senderEmail}, Roll No: ${senderRollNo}).\n\nPlease click on the link below to confirm your participation and fill out your details:\n\n${inviteLink}\n\nBest regards,\n\nIf you are a new user, your login details are as follows:\nLogin email: ${partnerEmail}\nPassword: ${uniqueCode}\n\nExplore the website: ${link}\n\nProm Night Team`
         };
 
         transporter.sendMail(mailOptions, (error, info) => {
@@ -724,12 +1032,16 @@ app.post('/invitePromPartner', verifyToken, async (req, res) => {
     }
 });
 
-app.post('/promInvite/:inviteCode', async (req, res) => {
+
+const DEFAULT_PROFILE_IMAGE = 'QmatSLB6uquD2kxBpbKoxDN63F41fp8Xp8UdYboJdReG31';
+
+app.post('/prom-invite/:inviteCode', async (req, res) => {
+    const DEFAULT_PROFILE_IMAGE = 'QmatSLB6uquD2kxBpbKoxDN63F41fp8Xp8UdYboJdReG31';
     const { inviteCode } = req.params;
-    const { name, hall, year, phoneNo } = req.body;
+    const { name, hall, year, rollNo, phoneNo, gender, profile_image , profile_image_secondary} = req.body;
 
     try {
-        // Fetch the invitation using the invite code
+
         const [invitation] = await pool.query(
             "SELECT * FROM prom_invitations WHERE invite_code = ? AND status = 'pending'",
             [inviteCode]
@@ -739,36 +1051,165 @@ app.post('/promInvite/:inviteCode', async (req, res) => {
             return res.status(404).json({ message: 'Invalid or expired invitation' });
         }
 
-        const { sender_id } = invitation[0];
+        const { sender_id, partner_email } = invitation[0];
 
-        // Create a new user entry in the database for the partner
-        const [result] = await pool.query(
-            "INSERT INTO users (name, hall, year, phoneNo) VALUES (?, ?, ?, ?)",
-            [name, hall, year, phoneNo]
+
+        const [existingUser] = await pool.query(
+            "SELECT id FROM users WHERE email = ?",
+            [partner_email]
         );
 
-        const newUserId = result.insertId;  // Get the newly created user's ID
+        let partnerId;
 
-        // Update the invitation status to 'accepted'
+
+
+
+        if (existingUser.length > 0) {
+            partnerId = existingUser[0].id;
+
+            const [existingAcceptedRequest] = await pool.query(
+                "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+                [partnerId, partnerId]
+            );
+            if (existingAcceptedRequest.length > 0) {
+                return res.status(411).json({ message: 'You are already matched with someone' });
+            }
+        } else {
+
+            const hashedPassword = await bcrypt.hash(inviteCode, 10);
+
+            const [newUser] = await pool.query(
+                "INSERT INTO users (email, name,rollNo, hall, year, phoneNo, gender, profile_image, profile_image_secondary, password) VALUES (?, ? ,?,?, ?, ?, ?, ?, ?, ?)",
+                [
+                    partner_email,
+                    name,
+                    rollNo,            // Assuming rollNo should go here
+                    hall,
+                    year,              // Assuming year should go here
+                    phoneNo,           // Assuming phoneNo should go here
+                    gender,
+                    profile_image || DEFAULT_PROFILE_IMAGE,
+                    profile_image_secondary || DEFAULT_PROFILE_IMAGE,
+                    hashedPassword
+                ]
+            );
+
+            partnerId = newUser.insertId;
+        }
+
+
         await pool.query(
             "UPDATE prom_invitations SET status = 'accepted', partner_details = ? WHERE invite_code = ?",
-            [JSON.stringify({ name, hall, year, phoneNo }), inviteCode]
+            [JSON.stringify({ name, hall, year, rollNo , phoneNo, gender }), inviteCode]
         );
 
-        // Add both users as matched for prom night
+
         await pool.query(
-            "INSERT INTO prom_night_requests (requester_id, requested_id, status) VALUES (?, ?, 'accepted')",
-            [sender_id, newUserId] // Use the new user's ID as requested_id
+            "INSERT INTO matches (user_one_id, user_two_id, created_at) VALUES (?, ?, NOW())",
+            [sender_id, partnerId]
         );
 
-        // Notify the user that the invitation was accepted (if needed)
-        res.status(201).json({ message: 'Invitation accepted and form submitted successfully!' });
+
+        await pool.query(
+            "INSERT INTO prom_night_requests (requester_id, requested_id, status, request_time) VALUES (?, ?, 'accepted', NOW())",
+            [partnerId, sender_id]
+        );
+        
+
+        const [sender] = await pool.query("SELECT email, name, rollNo FROM users WHERE id = ?", [sender_id]);
+        const partnerEmail = partner_email;
+        // const senderEmail = sender[0].email;
+        // const senderName = sender[0].name;
+        // const partnerName = name;
+        const senderRollNo = sender[0].rollNo;
+
+        const senderEmail = sender[0].email;
+        const senderName = sender[0].name;
+
+        const inviteLink = `${process.env.FRONTEND_URL}/prom-invite/${inviteCode}`;
+        const uniqueCode = inviteCode;
+        const partnerName = name;
+        // const partnerEmail = partner_email;
+
+        const mailOptionsPartner = {
+            from: "prom@springfest.in",
+            to: partnerEmail,
+            subject: "Prom Night Invitation Accepted!",
+            text: `Hello ${partnerName},\n\nYou have been successfully added as a participant in Prom Night! You will be attending with ${senderName} (Roll No: ${senderRollNo}).\n\nBest regards,\nProm Night Team`
+        };
+
+
+        // const [sender] = await pool.query("SELECT email, name FROM users WHERE id = ?", [sender_id]);
+
+
+        const mailOptionsSender = {
+            from: "prom@springfest.in",
+            to: senderEmail,
+            subject: "Your Prom Invitation was Accepted!",
+            text: `Hello ${senderName},\n\nYour prom night invitation was successfully accepted by ${partnerName}. Your prom date is now confirmed!\n\nBest regards,\nProm Night Team`
+        };
+
+
+        transporter.sendMail(mailOptionsPartner, (error, info) => {
+            if (error) {
+                console.error("Error sending email to partner:", error);
+            } else {
+                console.log("Partner email sent:", info.response);
+            }
+        });
+
+        transporter.sendMail(mailOptionsSender, (error, info) => {
+            if (error) {
+                console.error("Error sending email to sender:", error);
+            } else {
+                console.log("Sender email sent:", info.response);
+            }
+        });
+
+
+        res.status(201).json({ message: 'Invitation accepted, and emails sent to both participants!' });
 
     } catch (error) {
-        console.error("Error accepting invitation:", error);
+        console.error("Error processing prom invite:", error);
         res.status(500).json({ message: 'Server error' });
     }
 });
+
+app.get('/api/partner/:userId', verifyToken, async (req, res) => {
+    try {
+        const userId = req.params.userId;
+
+        // Step 1: Find the accepted prom request for the user
+        const [promRequest] = await pool.query(
+            "SELECT * FROM prom_night_requests WHERE (requested_id = ? OR requester_id = ?) AND status = 'accepted'",
+            [userId, userId]
+        );
+
+        if (promRequest.length === 0) {
+            return res.status(404).json({ message: 'No accepted prom request found for this user.' });
+        }
+
+        // Step 2: Identify the partner's ID
+        const partnerId = promRequest[0].requested_id === parseInt(userId) ? promRequest[0].requester_id : promRequest[0].requested_id;
+
+        // Step 3: Fetch the partner's details from the 'users' table
+        const [partnerDetails] = await pool.query(
+            "SELECT id ,name, email, profile_image, rollno FROM users WHERE id = ?",
+            [partnerId]
+        );
+
+        if (partnerDetails.length === 0) {
+            return res.status(404).json({ message: 'Partner not found in users table.' });
+        }
+
+        // Step 4: Send the partner's details
+        res.status(200).json({ message: 'Partner details fetched successfully', partner: partnerDetails[0] });
+    } catch (error) {
+        console.error("Error fetching partner details:", error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 
 
 
