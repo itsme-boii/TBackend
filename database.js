@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs/dist/bcrypt.js";
 import jwt from "jsonwebtoken";
 import { Server } from "socket.io";
 import http from "http";
+
 import cookieParser from "cookie-parser";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
@@ -15,6 +16,14 @@ import axios from 'axios';
 // import { Server } from "socket.io";
 import cors from "cors";
 import { CLIENT_RENEG_LIMIT } from "tls";
+
+import { google } from 'googleapis';
+import fs from 'fs';
+import path from 'path';
+import cron from 'node-cron'; 
+
+
+
 
 dotenv.config();
 
@@ -75,23 +84,100 @@ function verifyToken(req, res, next) {
     });
 }
 
-app.post("/register", upload.single('profileImage1'), async (req, res) => {
+// app.post("/register", upload.single('profileImage1'), async (req, res) => {
+//     try {
+//         console.log("req body is ", req.body);
+//         const { recaptchaToken, name, email, password, rollNo, year, hall, PhoneNo, gender, bio, profileImage1, profileImage2, termsAccepted } = req.body;
+//         console.log("Received data:", {
+//             name,
+//             email,
+//             rollNo,
+//             hall,
+//             year,
+//             gender,
+//             bio,
+//             PhoneNo,
+//             profileImage1,
+//             profileImage2,
+//             termsAccepted
+//         });
+
+//         if (!process.env.RECAPTCHA_SECRET_KEY) {
+//             return res.status(500).json({ error: "Server misconfiguration: reCAPTCHA secret key is missing." });
+//         }
+
+//         // Validate terms acceptance
+//         if (!termsAccepted) {
+//             return res.status(400).json({ error: "You must accept the terms and conditions." });
+//         }
+
+//         // reCAPTCHA validation
+//         const flattenedRecaptchaToken = Array.isArray(recaptchaToken) ? recaptchaToken.flat()[0] : recaptchaToken;
+//         if (!flattenedRecaptchaToken) {
+//             return res.status(400).json({ error: "reCAPTCHA token is missing or invalid" });
+//         }
+
+//         const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
+//             params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: flattenedRecaptchaToken },
+//         });
+
+//         if (!recaptchaResponse.data.success) {
+//             return res.status(401).json({ error: "reCAPTCHA verification failed" });
+//         }
+
+//         if (!name || !year || !hall || !email || !rollNo || !PhoneNo || !password || !gender || !bio || !profileImage1 || !profileImage2) {
+//             return res.status(400).json({ error: "All fields are required." });
+//         }
+
+//         // Check if email, PhoneNo, or rollNo already exists
+//         const [existingUser] = await pool.query(
+//             "SELECT * FROM users WHERE email = ? OR PhoneNo = ? OR rollNo = ?",
+//             [email, PhoneNo, rollNo]
+//         );
+
+//         if (existingUser.length > 0) {
+//             if (existingUser.some(user => user.email === email)) {
+//                 return res.status(409).json({ message: "Email already exists." });
+//             } else if (existingUser.some(user => user.phoneNo === PhoneNo)) {
+//                 return res.status(408).json({ message: "Phone number already exists." });
+//             } else if (existingUser.some(user => user.rollNo === rollNo)) {
+//                 return res.status(407).json({ message: "Roll number already exists." });
+//             }
+//         }
+
+//         // Hash password
+//         const hashedPassword = bcrypt.hashSync(password, 10);
+
+//         // Insert new user
+//         const result = await pool.query(
+//             'INSERT INTO users (name, year, PhoneNo, hall, rollNo, email, password, gender, bio, profile_image, profile_image_secondary, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+//             [name, year, PhoneNo, hall, rollNo, email, hashedPassword, gender, bio, profileImage1, profileImage2, termsAccepted]
+//         );
+
+//         const userId = result[0].insertId;
+
+//         // Respond with success
+//         res.status(201).json({
+//             message: "User Registered Successfully",
+//             user: { userId, name, rollNo, year, hall, PhoneNo, email, gender, bio, profileImage1, profileImage2, termsAccepted }
+//         });
+
+//     } catch (error) {
+//         console.error("Error inserting user:", error);
+//         res.status(500).json({ error: "Database error" });
+//     }
+// });
+
+
+// const MSG91_API_KEY = process.env.MSG91_API_KEY;
+// console.log(MSG91_API_KEY)
+
+const temporaryUserStorage = {}; // Temporary storage for user data
+
+app.post("/register", async (req, res) => {
     try {
-        console.log("req body is ", req.body);
         const { recaptchaToken, name, email, password, rollNo, year, hall, PhoneNo, gender, bio, profileImage1, profileImage2, termsAccepted } = req.body;
-        console.log("Received data:", {
-            name,
-            email,
-            rollNo,
-            hall,
-            year,
-            gender,
-            bio,
-            PhoneNo,
-            profileImage1,
-            profileImage2,
-            termsAccepted
-        });
+
 
         if (!process.env.RECAPTCHA_SECRET_KEY) {
             return res.status(500).json({ error: "Server misconfiguration: reCAPTCHA secret key is missing." });
@@ -111,7 +197,7 @@ app.post("/register", upload.single('profileImage1'), async (req, res) => {
         const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
             params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: flattenedRecaptchaToken },
         });
-        
+
         if (!recaptchaResponse.data.success) {
             return res.status(401).json({ error: "reCAPTCHA verification failed" });
         }
@@ -120,12 +206,15 @@ app.post("/register", upload.single('profileImage1'), async (req, res) => {
             return res.status(400).json({ error: "All fields are required." });
         }
 
+        if (!termsAccepted) {
+            return res.status(400).json({ error: "You must accept the terms and conditions." });
+        }
+
         // Check if email, PhoneNo, or rollNo already exists
         const [existingUser] = await pool.query(
             "SELECT * FROM users WHERE email = ? OR PhoneNo = ? OR rollNo = ?",
             [email, PhoneNo, rollNo]
         );
-
         if (existingUser.length > 0) {
             if (existingUser.some(user => user.email === email)) {
                 return res.status(409).json({ message: "Email already exists." });
@@ -136,28 +225,89 @@ app.post("/register", upload.single('profileImage1'), async (req, res) => {
             }
         }
 
-        // Hash password
-        const hashedPassword = bcrypt.hashSync(password, 10);
+        // Generate a 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000);
 
-        // Insert new user
-        const result = await pool.query(
-            'INSERT INTO users (name, year, PhoneNo, hall, rollNo, email, password, gender, bio, profile_image, profile_image_secondary, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [name, year, PhoneNo, hall, rollNo, email, hashedPassword, gender, bio, profileImage1, profileImage2, termsAccepted]
-        );
+        // Send OTP to user's email using Nodemailer
+        const mailOptions = {
+            from: 'prom@springfest.in',
+            to: email,
+            subject: "Your OTP for Registration",
+            text: `Your OTP for registration is ${otp}. Please do not share it with anyone.`,
+        };
 
-        const userId = result[0].insertId;
+        await transporter.sendMail(mailOptions);
 
-        // Respond with success
-        res.status(201).json({
-            message: "User Registered Successfully",
-            user: { userId, name, rollNo, year, hall, PhoneNo, email, gender, bio, profileImage1, profileImage2, termsAccepted }
+        // Temporarily store user details and OTP until verification
+        temporaryUserStorage[email] = {
+            otp,
+            name,
+            email,
+            password: bcrypt.hashSync(password, 10),
+            rollNo,
+            year,
+            hall,
+            PhoneNo,
+            gender,
+            bio,
+            profileImage1,
+            profileImage2,
+            termsAccepted,
+        };
+
+        console.log(temporaryUserStorage[email]);
+
+        return res.status(201).json({
+            email,
+            name,
+            message: "OTP sent to your email. Please verify."
         });
-
     } catch (error) {
-        console.error("Error inserting user:", error);
-        res.status(500).json({ error: "Database error" });
+        console.error("Error during registration:", error);
+        res.status(500).json({ error: "Server error" });
     }
 });
+
+app.post("/verify-otp", async (req, res) => {
+    const { email, otp } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ error: "Email is required for OTP verification." });
+    }
+
+
+    try {
+        // Retrieve the user data from temporary storage
+        console.log("Current Temporary Storage:", temporaryUserStorage);
+        const userData = temporaryUserStorage[email.trim().toLowerCase()];
+        console.log("Retrieved User Data:", userData);
+
+        if (!userData) {
+            return res.status(400).json({ error: "User data not found. Please re-register." });
+        }
+
+        // Check if OTP matches
+        if (parseInt(otp) === userData.otp) {
+            // Insert verified user into main users table
+            const result = await pool.query(
+                'INSERT INTO users (name, year, PhoneNo, hall, rollNo, email, password, gender, bio, profile_image, profile_image_secondary, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [userData.name, userData.year, userData.PhoneNo, userData.hall, userData.rollNo, userData.email, userData.password, userData.gender, userData.bio, userData.profileImage1, userData.profileImage2, userData.termsAccepted]
+            );
+
+            // Clear user data from temporary storage
+            delete temporaryUserStorage[email];
+
+            res.status(200).json({ message: "OTP verified. Registration complete." });
+        } else {
+            res.status(401).json({ error: "Invalid OTP. Please try again." });
+        }
+
+    } catch (error) {
+        console.error("Error verifying OTP:", error);
+        res.status(500).json({ error: "Failed to verify OTP. Please try again." });
+    }
+});
+
 
 
 app.post("/login", async (req, res) => {
@@ -200,36 +350,125 @@ app.post("/login", async (req, res) => {
 // })
 
 
+
+// app.post("/forgot-password", async (req, res) => {
+//     try {
+//         const { email, newPassword, recaptchaToken } = req.body;
+
+//         // Validate the reCAPTCHA
+//         const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
+//             params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: recaptchaToken },
+//         });
+
+//         if (!recaptchaResponse.data.success) {
+//             return res.status(401).json({ error: "reCAPTCHA verification failed" });
+//         }
+
+//         // Check if the user exists
+//         const [user] = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
+//         if (user.length === 0) {
+//             return res.status(404).json({ error: "User not found" });
+//         }
+
+//         // Hash the new password
+//         const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+//         // Update the user's password in the database
+//         await pool.query("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email]);
+
+//         res.status(200).json({ message: "Password has been updated successfully" });
+//     } catch (error) {
+//         console.error("Error updating password", error);
+//         res.status(500).json({ error: "Internal server error" });
+//     }
+// });
+
+
+
+const temporaryOtpStorage = {};
+
 app.post("/forgot-password", async (req, res) => {
-	try {
-		const { email, newPassword, recaptchaToken } = req.body;
+    try {
+        const { email, recaptchaToken } = req.body;
 
-		// Validate the reCAPTCHA
-		const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
-			params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: recaptchaToken },
-		});
+        // Validate the reCAPTCHA
+        const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
+            params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: recaptchaToken },
+        });
 
-		if (!recaptchaResponse.data.success) {
-			return res.status(401).json({ error: "reCAPTCHA verification failed" });
-		}
+        if (!recaptchaResponse.data.success) {
+            return res.status(401).json({ error: "reCAPTCHA verification failed" });
+        }
 
-		// Check if the user exists
-		const [user] = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
-		if (user.length === 0) {
-			return res.status(404).json({ error: "User not found" });
-		}
+        // Check if the user exists
+        const [user] = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
+        if (user.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+        }
 
-		// Hash the new password
-		const hashedPassword = bcrypt.hashSync(newPassword, 10);
+        // Generate a 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000);
 
-		// Update the user's password in the database
-		await pool.query("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email]);
+        // Send OTP to user's email using Nodemailer
+        const mailOptions = {
+            from: 'prom@springfest.in',
+            to: email,
+            subject: "Your OTP for Password Reset",
+            text: `Your OTP for password reset is ${otp}. Please do not share it with anyone.`,
+        };
 
-		res.status(200).json({ message: "Password has been updated successfully" });
-	} catch (error) {
-		console.error("Error updating password", error);
-		res.status(500).json({ error: "Internal server error" });
-	}
+        await transporter.sendMail(mailOptions);
+
+        // Temporarily store the OTP until verification
+        temporaryOtpStorage[email] = otp;
+
+        res.status(200).json({ message: "OTP sent to your email. Please verify." });
+    } catch (error) {
+        console.error("Error sending OTP", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+app.post("/verify-otpf", async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+
+        // Check if the OTP matches the one stored
+        if (temporaryOtpStorage[email] !== parseInt(otp, 10)) {
+            return res.status(400).json({ error: "Invalid OTP. Please try again." });
+        }
+
+        // If OTP is valid, delete it from temporary storage
+        delete temporaryOtpStorage[email];
+
+        res.status(200).json({ message: "OTP verified successfully. You can now reset your password." });
+    } catch (error) {
+        console.error("Error verifying OTP", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+app.post("/reset-password", async (req, res) => {
+    try {
+        const { email, newPassword } = req.body;
+
+        // Check if the user exists
+        const [user] = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
+        if (user.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Hash the new password
+        const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+        // Update the user's password in the database
+        await pool.query("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email]);
+
+        res.status(200).json({ message: "Password has been updated successfully" });
+    } catch (error) {
+        console.error("Error updating password", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
 });
 
 
@@ -268,17 +507,17 @@ app.get("/getUsers", verifyToken, async (req, res) => {
 
         // Handle case for 'others' gender
         if (Array.isArray(oppositeGender)) {
-            query = "SELECT * FROM users WHERE gender IN (?, ?) AND id NOT IN (?)";
+            query = "SELECT * FROM users WHERE gender IN (?, ?) AND id NOT IN (?) LIMIT 18";
             values = [...oppositeGender, excludedUserIds];
         } else {
-            query = "SELECT * FROM users WHERE gender = ? AND id NOT IN (?)";
+            query = "SELECT * FROM users WHERE gender = ? AND id NOT IN (?) LIMIT 18";
             values = [oppositeGender, excludedUserIds];
         }
 
-        // Execute query
+      
         const [rows] = await pool.query(query, values);
 
-        // Return the result
+       
         return res.status(200).json({ message: "Users List", data: rows });
 
     } catch (error) {
@@ -746,12 +985,75 @@ app.post('/requestPromNight', verifyToken, async (req, res) => {
     }
 });
 
+// app.post('/acceptPromNight', verifyToken, async (req, res) => {
+//     const { requestId } = req.body;
+//     const requestedId = req.userId;
+
+//     try {
+//         // Check if the requested user has already accepted a match
+//         const [existingAcceptedRequest] = await pool.query(
+//             "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+//             [requestedId, requestedId]
+//         );
+//         if (existingAcceptedRequest.length > 0) {
+//             return res.status(409).json({ message: 'You are already matched with someone' });
+//         }
+
+//         const [existingPendingRequest] = await pool.query(
+//             "SELECT * FROM prom_invitations WHERE (sender_id = ?) AND status = 'accepted'",
+//             [senderId, senderId]
+//         )
+
+//         if (existingPendingRequest.length > 0) {
+//             return res.status(409).json({ message: 'You are already matched with someone' });
+//         }
+
+//         // Find the pending request and requester
+//         const [pendingRequest] = await pool.query(
+//             "SELECT requester_id FROM prom_night_requests WHERE id = ? AND requested_id = ? AND status = 'pending'",
+//             [requestId, requestedId]
+//         );
+//         if (pendingRequest.length === 0) {
+//             return res.status(404).json({ message: 'No pending request found' });
+//         }
+
+//         const requesterId = pendingRequest[0].requester_id;
+
+//         // Check if the requester is already matched with someone else
+//         const [requesterAcceptedRequest] = await pool.query(
+//             "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
+//             [requesterId, requesterId]
+//         );
+//         if (requesterAcceptedRequest.length > 0) {
+//             return res.status(408).json({ message: 'Requester is already matched with someone' });
+//         }
+
+//         // Accept the request
+//         await pool.query(
+//             "UPDATE prom_night_requests SET status = 'accepted' WHERE id = ?",
+//             [requestId]
+//         );
+
+//         // Cancel all other pending requests for both users
+//         await pool.query(
+//             "UPDATE prom_night_requests SET status = 'canceled' WHERE (requester_id = ? OR requested_id = ?) AND status = 'pending'",
+//             [requesterId, requestedId]
+//         );
+
+//         res.status(200).json({ message: 'Prom night request accepted!' });
+//     } catch (error) {
+//         console.error("Error accepting prom night request:", error);
+//         res.status(500).json({ message: 'Server error' });
+//     }
+// });
+
+
 app.post('/acceptPromNight', verifyToken, async (req, res) => {
     const { requestId } = req.body;
-    const requestedId = req.userId;
+    const requestedId = req.userId; // This is the ID of the user accepting the request.
 
     try {
-        // Check if the requested user has already accepted a match
+
         const [existingAcceptedRequest] = await pool.query(
             "SELECT * FROM prom_night_requests WHERE (requester_id = ? OR requested_id = ?) AND status = 'accepted'",
             [requestedId, requestedId]
@@ -760,16 +1062,7 @@ app.post('/acceptPromNight', verifyToken, async (req, res) => {
             return res.status(409).json({ message: 'You are already matched with someone' });
         }
 
-        const [existingPendingRequest] = await pool.query(
-            "SELECT * FROM prom_invitations WHERE (sender_id = ?) AND status = 'accepted'",
-            [senderId, senderId]
-        )
 
-        if (existingPendingRequest.length > 0) {
-            return res.status(409).json({ message: 'You are already matched with someone' });
-        }
-
-        // Find the pending request and requester
         const [pendingRequest] = await pool.query(
             "SELECT requester_id FROM prom_night_requests WHERE id = ? AND requested_id = ? AND status = 'pending'",
             [requestId, requestedId]
@@ -787,6 +1080,16 @@ app.post('/acceptPromNight', verifyToken, async (req, res) => {
         );
         if (requesterAcceptedRequest.length > 0) {
             return res.status(408).json({ message: 'Requester is already matched with someone' });
+        }
+
+        // Check if the requester has any accepted invitations
+        const [existingPendingInvitation] = await pool.query(
+            "SELECT * FROM prom_invitations WHERE sender_id = ? AND status = 'accepted'",
+            [requesterId]
+        );
+
+        if (existingPendingInvitation.length > 0) {
+            return res.status(409).json({ message: 'Requester has already accepted a prom invitation' });
         }
 
         // Accept the request
@@ -807,6 +1110,7 @@ app.post('/acceptPromNight', verifyToken, async (req, res) => {
         res.status(500).json({ message: 'Server error' });
     }
 });
+
 
 app.post('/cancelPromNight', verifyToken, async (req, res) => {
     const { requestId } = req.body; // Change this to requestId
@@ -832,21 +1136,69 @@ app.post('/cancelPromNight', verifyToken, async (req, res) => {
     res.status(200).json({ message: 'Prom night request canceled!' });
 });
 
+// app.get('/promnight/check/:userId', async (req, res) => {
+//     try {
+//         const { userId } = req.params;
+
+//         const [promRequests] = await pool.query(
+//             "SELECT * FROM prom_night_requests WHERE requested_id = ? AND status = 'pending'",
+//             [userId]
+//         );
+
+//         res.json({ promRequests });
+//     } catch (error) {
+//         console.error("Error checking prom night requests:", error);
+//         res.status(500).json({ message: 'Server error' });
+//     }
+// });
+
 app.get('/promnight/check/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
 
+
+
         const [promRequests] = await pool.query(
-            "SELECT * FROM prom_night_requests WHERE requested_id = ? AND status = 'pending'",
+            "SELECT id, requested_id, requester_id, status, request_time FROM prom_night_requests WHERE requested_id = ? AND status = 'pending'",
             [userId]
         );
 
-        res.json({ promRequests });
+
+
+        const requesterIds = promRequests.map((request) => request.requester_id);
+
+
+
+        if (requesterIds.length > 0) {
+            const [requesterNames] = await pool.query(
+                `SELECT id, name FROM users WHERE id IN (?)`,
+                [requesterIds]
+            );
+
+
+
+            const nameMap = Object.fromEntries(requesterNames.map(user => [user.id, user.name]));
+
+
+
+            const enrichedRequests = promRequests.map(request => ({
+                ...request,
+                requester_name: nameMap[request.requester_id] || 'Unknown'
+            }));
+
+
+            res.json({ promRequests: enrichedRequests });
+        } else {
+
+            res.json({ promRequests: [] });
+        }
+
     } catch (error) {
         console.error("Error checking prom night requests:", error);
         res.status(500).json({ message: 'Server error' });
     }
 });
+
 
 app.get('/likes/:userId', async (req, res) => {
     // const userId = req.user.id; // Assuming you have user ID from authentication middleware
@@ -854,7 +1206,7 @@ app.get('/likes/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         const [rows] = await pool.query(`
-        SELECT u.id, u.name, u.email, u.profile_image
+        SELECT u.id, u.profile_image
         FROM likes l
         JOIN users u ON l.user_id = u.id
         WHERE l.liked_user_id = ?`, [userId]);
@@ -1006,8 +1358,8 @@ app.post('/invitePromPartner', verifyToken, async (req, res) => {
         );
 
         // Generate the invitation link
-        const inviteLink = `https://prom-iota.vercel.app/prom-invite/${uniqueCode}`;
-        const link = 'https://prom-iota.vercel.app/';
+        const inviteLink = `https://prom.springfest.in/prom-invite/${uniqueCode}`;
+        const link = 'https://prom.springfest.in/';
 
         // Prepare and send the email to the partner
         const mailOptions = {
@@ -1038,7 +1390,7 @@ const DEFAULT_PROFILE_IMAGE = 'QmatSLB6uquD2kxBpbKoxDN63F41fp8Xp8UdYboJdReG31';
 app.post('/prom-invite/:inviteCode', async (req, res) => {
     const DEFAULT_PROFILE_IMAGE = 'QmatSLB6uquD2kxBpbKoxDN63F41fp8Xp8UdYboJdReG31';
     const { inviteCode } = req.params;
-    const { name, hall, year, rollNo, phoneNo, gender, profile_image , profile_image_secondary} = req.body;
+    const { name, hall, year, rollNo, phoneNo, gender, profile_image, profile_image_secondary } = req.body;
 
     try {
 
@@ -1100,7 +1452,7 @@ app.post('/prom-invite/:inviteCode', async (req, res) => {
 
         await pool.query(
             "UPDATE prom_invitations SET status = 'accepted', partner_details = ? WHERE invite_code = ?",
-            [JSON.stringify({ name, hall, year, rollNo , phoneNo, gender }), inviteCode]
+            [JSON.stringify({ name, hall, year, rollNo, phoneNo, gender }), inviteCode]
         );
 
 
@@ -1114,7 +1466,7 @@ app.post('/prom-invite/:inviteCode', async (req, res) => {
             "INSERT INTO prom_night_requests (requester_id, requested_id, status, request_time) VALUES (?, ?, 'accepted', NOW())",
             [partnerId, sender_id]
         );
-        
+
 
         const [sender] = await pool.query("SELECT email, name, rollNo FROM users WHERE id = ?", [sender_id]);
         const partnerEmail = partner_email;
@@ -1216,11 +1568,158 @@ app.get('/api/partner/:userId', verifyToken, async (req, res) => {
 
 
 
+// app.get('/api/accepted-prom-requests', async (req, res) => {
+//     try {
+//         // Fetch only accepted prom night requests
+//         const [requestRows] = await pool.query(`
+//             SELECT id, requested_id, requester_id, status, request_time
+//             FROM prom_night_requests
+//             WHERE status = 'accepted'
+//         `);
+
+//         // If there are no accepted requests, return an empty array
+//         if (requestRows.length === 0) {
+//             return res.json([]);
+//         }
+
+//         // Collect unique user IDs from accepted requests
+//         const userIds = [
+//             ...new Set(requestRows.flatMap(request => [request.requested_id, request.requester_id]))
+//         ];
+
+//         // Fetch user details for each unique ID
+//         const [userRows] = await pool.query(`
+//             SELECT id, name, email, gender, bio, created_at, rollNo, phoneNo, hall, year 
+//             FROM users
+//             WHERE id IN (?)
+//         `, [userIds]);
+
+//         // Map user details by user ID for easy lookup
+//         const userMap = Object.fromEntries(
+//             userRows.map(user => [user.id, {
+//                 id: user.id,
+//                 name: user.name,
+//                 email: user.email,
+//                 gender: user.gender,
+//                 bio: user.bio,
+//                 created_at: user.created_at,
+//                 rollNo: user.rollNo,
+//                 phoneNo: user.phoneNo,
+//                 hall: user.hall,
+//                 year: user.year,
+//             }])
+//         );
+
+//         // Build response data including user details for each accepted request
+//         const result = requestRows.map(request => ({
+//             request_id: request.id,
+//             status: request.status,
+//             request_time: request.request_time,
+//             requested_user: userMap[request.requested_id] || null,
+//             requester_user: userMap[request.requester_id] || null
+//         }));
+
+//         // Sort by year priorities: 5,5 > 5,4 > 4,5 > 4,4 > 4,3 > 3,4, etc.
+//         result.sort((a, b) => {
+//             const aRequestedYear = a.requested_user?.year || 0;
+//             const aRequesterYear = a.requester_user?.year || 0;
+//             const bRequestedYear = b.requested_user?.year || 0;
+//             const bRequesterYear = b.requester_user?.year || 0;
+
+//             // Compare by primary year order
+//             if (aRequestedYear !== bRequestedYear) return bRequestedYear - aRequestedYear;
+//             if (aRequesterYear !== bRequesterYear) return bRequesterYear - aRequesterYear;
+
+//             // Fallback to request time if years are identical
+//             return new Date(a.request_time) - new Date(b.request_time);
+//         });
+
+//         res.json(result);
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ error: 'Server error' });
+//     }
+// });
+
+
+
+
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const spreadsheetId = "1DyKHLo76b0JQpMjRm-hhdUZ24OJN3j0uw30ZJMiAqaE"; // Use only the ID
+
+
+// Load credentials from JSON file
+const serviceAccountCredentials = JSON.parse(fs.readFileSync('./service-account.json', 'utf8'));
+
+// Google Sheets authorization function
+async function authorizeGoogleSheets() {
+    const auth = new google.auth.GoogleAuth({
+        credentials: serviceAccountCredentials,
+        scopes: SCOPES,
+    });
+    return auth.getClient();
+}
+
+
+async function fetchDataAndExportToGoogleSheet() {
+    try {
+        const auth = await authorizeGoogleSheets();
+        const sheets = google.sheets({ version: 'v4', auth });
+
+        const [rows] = await pool.query(`
+            SELECT r.id AS request_id, r.status, r.request_time,
+                   u1.name AS requester_name, u1.email AS requester_email, u1.rollNo AS requester_rollNo, u1.gender AS requester_gender, u1.year AS requester_year,
+                   u2.name AS requested_name, u2.email AS requested_email, u2.rollNo AS requested_rollNo, u2.gender AS requested_gender, u2.year AS requested_year
+            FROM prom_night_requests r
+            JOIN users u1 ON r.requester_id = u1.id
+            JOIN users u2 ON r.requested_id = u2.id
+            WHERE r.status = 'accepted'
+        `);
+
+        const values = [
+            [
+                'Request ID', 'Status', 'Request Time', 'Requester Name', 'Requester Email', 'Requester RollNo', 'Requester Gender', 'Requester Year',
+                'Requested Name', 'Requested Email', 'Requested RollNo', 'Requested Gender', 'Requested Year'
+            ],
+            ...rows.map(row => [
+                row.request_id, row.status, row.request_time,
+                row.requester_name, row.requester_email, row.requester_rollNo, row.requester_gender, row.requester_year,
+                row.requested_name, row.requested_email, row.requested_rollNo, row.requested_gender, row.requested_year
+            ]),
+        ];
+
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: 'Sheet1!A1', 
+            valueInputOption: 'RAW',
+            resource: { values },
+        });
+
+        console.log("Data successfully exported to Google Sheets.");
+    } catch (error) {
+        console.error("Error exporting data to Google Sheets:", error);
+    }
+}
+
+// Set up a cron job to run every hour
+cron.schedule('0 * * * *', async () => {
+    console.log('Running cron job to export data to Google Sheets...');
+    await fetchDataAndExportToGoogleSheet();
+});
+
+
+
+(async () => {
+    console.log('Exporting initial data to Google Sheets on server start...');
+    await fetchDataAndExportToGoogleSheet();
+})();
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 })
+
+
 
 
 export default app;
