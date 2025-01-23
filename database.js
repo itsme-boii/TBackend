@@ -1,28 +1,20 @@
 import mysql from "mysql2";
 import dotenv from "dotenv";
 import express from "express";
-import multer from "multer";
+ 
+import multer from 'multer';
+ 
 import bcrypt from "bcryptjs/dist/bcrypt.js";
 import jwt from "jsonwebtoken";
 import { Server } from "socket.io";
 import http from "http";
-
 import cookieParser from "cookie-parser";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
-
 // import { Server } from "socket.io";
 import cors from "cors";
-import { CLIENT_RENEG_LIMIT } from "tls";
-
-import { google } from 'googleapis';
-import fs from 'fs';
-import path from 'path';
-import cron from 'node-cron'; 
-
-
 
 
 dotenv.config();
@@ -33,7 +25,7 @@ const pool = mysql.createPool(
         user: process.env.MYSQL_USER,
         password: process.env.MYSQL_PASSWORD,
         database: process.env.MYSQL_DATABASE,
-        port: 25141,
+        port: 10174,
         ssl: {
             rejectUnauthorized: false
         }
@@ -56,14 +48,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 const upload = multer({ dest: 'uploads/' });
 
-
-// email servce 
-// const uniqueCode = crypto.randomBytes(16).toString('hex'); 
 const transporter = nodemailer.createTransport({
     service: 'Gmail', // or any other email service
     auth: {
-        user: "communications@springfest.in",
-        pass: "ofms vheh aqwy crpg",
+        user: "kk.possible.it.is@gmail.com",
+        pass: "psng xbuo wwvp xrgf",
     }
 });
 
@@ -83,126 +72,17 @@ function verifyToken(req, res, next) {
         next();
     });
 }
+ 
+const temporaryUserStorage = {}; 
 
-// app.post("/register", upload.single('profileImage1'), async (req, res) => {
-//     try {
-//         console.log("req body is ", req.body);
-//         const { recaptchaToken, name, email, password, rollNo, year, hall, PhoneNo, gender, bio, profileImage1, profileImage2, termsAccepted } = req.body;
-//         console.log("Received data:", {
-//             name,
-//             email,
-//             rollNo,
-//             hall,
-//             year,
-//             gender,
-//             bio,
-//             PhoneNo,
-//             profileImage1,
-//             profileImage2,
-//             termsAccepted
-//         });
-
-//         if (!process.env.RECAPTCHA_SECRET_KEY) {
-//             return res.status(500).json({ error: "Server misconfiguration: reCAPTCHA secret key is missing." });
-//         }
-
-//         // Validate terms acceptance
-//         if (!termsAccepted) {
-//             return res.status(400).json({ error: "You must accept the terms and conditions." });
-//         }
-
-//         // reCAPTCHA validation
-//         const flattenedRecaptchaToken = Array.isArray(recaptchaToken) ? recaptchaToken.flat()[0] : recaptchaToken;
-//         if (!flattenedRecaptchaToken) {
-//             return res.status(400).json({ error: "reCAPTCHA token is missing or invalid" });
-//         }
-
-//         const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
-//             params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: flattenedRecaptchaToken },
-//         });
-
-//         if (!recaptchaResponse.data.success) {
-//             return res.status(401).json({ error: "reCAPTCHA verification failed" });
-//         }
-
-//         if (!name || !year || !hall || !email || !rollNo || !PhoneNo || !password || !gender || !bio || !profileImage1 || !profileImage2) {
-//             return res.status(400).json({ error: "All fields are required." });
-//         }
-
-//         // Check if email, PhoneNo, or rollNo already exists
-//         const [existingUser] = await pool.query(
-//             "SELECT * FROM users WHERE email = ? OR PhoneNo = ? OR rollNo = ?",
-//             [email, PhoneNo, rollNo]
-//         );
-
-//         if (existingUser.length > 0) {
-//             if (existingUser.some(user => user.email === email)) {
-//                 return res.status(409).json({ message: "Email already exists." });
-//             } else if (existingUser.some(user => user.phoneNo === PhoneNo)) {
-//                 return res.status(408).json({ message: "Phone number already exists." });
-//             } else if (existingUser.some(user => user.rollNo === rollNo)) {
-//                 return res.status(407).json({ message: "Roll number already exists." });
-//             }
-//         }
-
-//         // Hash password
-//         const hashedPassword = bcrypt.hashSync(password, 10);
-
-//         // Insert new user
-//         const result = await pool.query(
-//             'INSERT INTO users (name, year, PhoneNo, hall, rollNo, email, password, gender, bio, profile_image, profile_image_secondary, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-//             [name, year, PhoneNo, hall, rollNo, email, hashedPassword, gender, bio, profileImage1, profileImage2, termsAccepted]
-//         );
-
-//         const userId = result[0].insertId;
-
-//         // Respond with success
-//         res.status(201).json({
-//             message: "User Registered Successfully",
-//             user: { userId, name, rollNo, year, hall, PhoneNo, email, gender, bio, profileImage1, profileImage2, termsAccepted }
-//         });
-
-//     } catch (error) {
-//         console.error("Error inserting user:", error);
-//         res.status(500).json({ error: "Database error" });
-//     }
-// });
-
-
-// const MSG91_API_KEY = process.env.MSG91_API_KEY;
-// console.log(MSG91_API_KEY)
-
-const temporaryUserStorage = {}; // Temporary storage for user data
-
-app.post("/register", async (req, res) => {
+app.post("/registers", async (req, res) => {
     try {
-        const { recaptchaToken, name, email, password, rollNo, year, hall, PhoneNo, gender, bio, profileImage1, profileImage2, termsAccepted } = req.body;
-
+        const {   name, email, password,  year,  PhoneNo, gender, bio, profileImage1, profileImage2, termsAccepted } = req.body;
 
         if (!process.env.RECAPTCHA_SECRET_KEY) {
             return res.status(500).json({ error: "Server misconfiguration: reCAPTCHA secret key is missing." });
         }
-
-        // Validate terms acceptance
-        if (!termsAccepted) {
-            return res.status(400).json({ error: "You must accept the terms and conditions." });
-        }
-
-        // reCAPTCHA validation
-        const flattenedRecaptchaToken = Array.isArray(recaptchaToken) ? recaptchaToken.flat()[0] : recaptchaToken;
-        if (!flattenedRecaptchaToken) {
-            return res.status(400).json({ error: "reCAPTCHA token is missing or invalid" });
-        }
-
-        const recaptchaResponse = await axios.post("https://www.google.com/recaptcha/api/siteverify", {}, {
-            params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: flattenedRecaptchaToken },
-        });
-
-        if (!recaptchaResponse.data.success) {
-            return res.status(401).json({ error: "reCAPTCHA verification failed" });
-        }
-
-        if (!name || !year || !hall || !email || !rollNo || !PhoneNo || !password || !gender || !bio || !profileImage1 || !profileImage2) {
+        if (!name || !year  || !email ||   !PhoneNo || !password || !gender || !bio || !profileImage1 || !profileImage2) {
             return res.status(400).json({ error: "All fields are required." });
         }
 
@@ -210,27 +90,23 @@ app.post("/register", async (req, res) => {
             return res.status(400).json({ error: "You must accept the terms and conditions." });
         }
 
-        // Check if email, PhoneNo, or rollNo already exists
+       
         const [existingUser] = await pool.query(
-            "SELECT * FROM users WHERE email = ? OR PhoneNo = ? OR rollNo = ?",
-            [email, PhoneNo, rollNo]
+            "SELECT * FROM users WHERE email = ? OR PhoneNo = ? ",
+            [email, PhoneNo]
         );
         if (existingUser.length > 0) {
             if (existingUser.some(user => user.email === email)) {
                 return res.status(409).json({ message: "Email already exists." });
             } else if (existingUser.some(user => user.phoneNo === PhoneNo)) {
                 return res.status(408).json({ message: "Phone number already exists." });
-            } else if (existingUser.some(user => user.rollNo === rollNo)) {
-                return res.status(407).json({ message: "Roll number already exists." });
-            }
+            }  
         }
 
-        // Generate a 6-digit OTP
         const otp = Math.floor(100000 + Math.random() * 900000);
 
-        // Send OTP to user's email using Nodemailer
         const mailOptions = {
-            from: 'prom@springfest.in',
+            from: 'kk.possible.it.is@gmail.com',
             to: email,
             subject: "Your OTP for Registration",
             text: `Your OTP for registration is ${otp}. Please do not share it with anyone.`,
@@ -238,15 +114,12 @@ app.post("/register", async (req, res) => {
 
         await transporter.sendMail(mailOptions);
 
-        // Temporarily store user details and OTP until verification
         temporaryUserStorage[email] = {
             otp,
             name,
             email,
             password: bcrypt.hashSync(password, 10),
-            rollNo,
             year,
-            hall,
             PhoneNo,
             gender,
             bio,
@@ -267,7 +140,7 @@ app.post("/register", async (req, res) => {
         res.status(500).json({ error: "Server error" });
     }
 });
-
+ 
 app.post("/verify-otp", async (req, res) => {
     const { email, otp } = req.body;
 
@@ -275,9 +148,7 @@ app.post("/verify-otp", async (req, res) => {
         return res.status(400).json({ error: "Email is required for OTP verification." });
     }
 
-
     try {
-        // Retrieve the user data from temporary storage
         console.log("Current Temporary Storage:", temporaryUserStorage);
         const userData = temporaryUserStorage[email.trim().toLowerCase()];
         console.log("Retrieved User Data:", userData);
@@ -286,25 +157,35 @@ app.post("/verify-otp", async (req, res) => {
             return res.status(400).json({ error: "User data not found. Please re-register." });
         }
 
-        // Check if OTP matches
-        if (parseInt(otp) === userData.otp) {
-            // Insert verified user into main users table
+        // ✅ Ensure OTP comparison works correctly
+        if (parseInt(otp) === userData.otp) {  
             const result = await pool.query(
-                'INSERT INTO users (name, year, PhoneNo, hall, rollNo, email, password, gender, bio, profile_image, profile_image_secondary, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [userData.name, userData.year, userData.PhoneNo, userData.hall, userData.rollNo, userData.email, userData.password, userData.gender, userData.bio, userData.profileImage1, userData.profileImage2, userData.termsAccepted]
+                'INSERT INTO users (id, name, year, PhoneNo, email, password, gender, bio, profile_image, profile_image_secondary, terms_accepted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    uuidv4(),  // Unique user ID
+                    userData.name,
+                    userData.year,
+                    userData.PhoneNo,
+                    userData.email,
+                    userData.password,
+                    userData.gender,
+                    userData.bio,
+                    userData.profileImage1,
+                    userData.profileImage2,
+                    userData.termsAccepted
+                ]
             );
 
-            // Clear user data from temporary storage
             delete temporaryUserStorage[email];
 
-            res.status(200).json({ message: "OTP verified. Registration complete." });
+            return res.status(200).json({ message: "OTP verified. Registration complete." });
         } else {
-            res.status(401).json({ error: "Invalid OTP. Please try again." });
+            return res.status(401).json({ error: "Invalid OTP. Please try again." });
         }
 
     } catch (error) {
         console.error("Error verifying OTP:", error);
-        res.status(500).json({ error: "Failed to verify OTP. Please try again." });
+        return res.status(500).json({ error: "Failed to verify OTP. Please try again." });
     }
 });
 
@@ -411,7 +292,7 @@ app.post("/forgot-password", async (req, res) => {
 
         // Send OTP to user's email using Nodemailer
         const mailOptions = {
-            from: 'prom@springfest.in',
+            from: 'kk.possible.it.is@gmail.com',
             to: email,
             subject: "Your OTP for Password Reset",
             text: `Your OTP for password reset is ${otp}. Please do not share it with anyone.`,
@@ -421,6 +302,8 @@ app.post("/forgot-password", async (req, res) => {
 
         // Temporarily store the OTP until verification
         temporaryOtpStorage[email] = otp;
+
+        console.log(temporaryOtpStorage);
 
         res.status(200).json({ message: "OTP sent to your email. Please verify." });
     } catch (error) {
@@ -539,7 +422,6 @@ app.post("/Dp", async (req, res) => {
     }
 })
 
-
 app.post('/like', verifyToken, async (req, res) => {
     try {
         const { likedUserId } = req.body;
@@ -641,7 +523,6 @@ app.get("/getUsers", verifyToken, async (req, res) => {
 
     }
 })
-
 
 app.get('/likedUserId', verifyToken, async (req, res) => {
     try {
@@ -1563,161 +1444,11 @@ app.get('/api/partner/:userId', verifyToken, async (req, res) => {
 });
 
 
-
-
-
-
-
-// app.get('/api/accepted-prom-requests', async (req, res) => {
-//     try {
-//         // Fetch only accepted prom night requests
-//         const [requestRows] = await pool.query(`
-//             SELECT id, requested_id, requester_id, status, request_time
-//             FROM prom_night_requests
-//             WHERE status = 'accepted'
-//         `);
-
-//         // If there are no accepted requests, return an empty array
-//         if (requestRows.length === 0) {
-//             return res.json([]);
-//         }
-
-//         // Collect unique user IDs from accepted requests
-//         const userIds = [
-//             ...new Set(requestRows.flatMap(request => [request.requested_id, request.requester_id]))
-//         ];
-
-//         // Fetch user details for each unique ID
-//         const [userRows] = await pool.query(`
-//             SELECT id, name, email, gender, bio, created_at, rollNo, phoneNo, hall, year 
-//             FROM users
-//             WHERE id IN (?)
-//         `, [userIds]);
-
-//         // Map user details by user ID for easy lookup
-//         const userMap = Object.fromEntries(
-//             userRows.map(user => [user.id, {
-//                 id: user.id,
-//                 name: user.name,
-//                 email: user.email,
-//                 gender: user.gender,
-//                 bio: user.bio,
-//                 created_at: user.created_at,
-//                 rollNo: user.rollNo,
-//                 phoneNo: user.phoneNo,
-//                 hall: user.hall,
-//                 year: user.year,
-//             }])
-//         );
-
-//         // Build response data including user details for each accepted request
-//         const result = requestRows.map(request => ({
-//             request_id: request.id,
-//             status: request.status,
-//             request_time: request.request_time,
-//             requested_user: userMap[request.requested_id] || null,
-//             requester_user: userMap[request.requester_id] || null
-//         }));
-
-//         // Sort by year priorities: 5,5 > 5,4 > 4,5 > 4,4 > 4,3 > 3,4, etc.
-//         result.sort((a, b) => {
-//             const aRequestedYear = a.requested_user?.year || 0;
-//             const aRequesterYear = a.requester_user?.year || 0;
-//             const bRequestedYear = b.requested_user?.year || 0;
-//             const bRequesterYear = b.requester_user?.year || 0;
-
-//             // Compare by primary year order
-//             if (aRequestedYear !== bRequestedYear) return bRequestedYear - aRequestedYear;
-//             if (aRequesterYear !== bRequesterYear) return bRequesterYear - aRequesterYear;
-
-//             // Fallback to request time if years are identical
-//             return new Date(a.request_time) - new Date(b.request_time);
-//         });
-
-//         res.json(result);
-//     } catch (error) {
-//         console.error(error);
-//         res.status(500).json({ error: 'Server error' });
-//     }
-// });
-
-
-
-
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
-const spreadsheetId = "1DyKHLo76b0JQpMjRm-hhdUZ24OJN3j0uw30ZJMiAqaE"; // Use only the ID
-
-
-// Load credentials from JSON file
-const serviceAccountCredentials = JSON.parse(fs.readFileSync('./service-account.json', 'utf8'));
-
-// Google Sheets authorization function
-async function authorizeGoogleSheets() {
-    const auth = new google.auth.GoogleAuth({
-        credentials: serviceAccountCredentials,
-        scopes: SCOPES,
-    });
-    return auth.getClient();
-}
-
-
-async function fetchDataAndExportToGoogleSheet() {
-    try {
-        const auth = await authorizeGoogleSheets();
-        const sheets = google.sheets({ version: 'v4', auth });
-
-        const [rows] = await pool.query(`
-            SELECT r.id AS request_id, r.status, r.request_time,
-                   u1.name AS requester_name, u1.email AS requester_email, u1.rollNo AS requester_rollNo, u1.gender AS requester_gender, u1.year AS requester_year,
-                   u2.name AS requested_name, u2.email AS requested_email, u2.rollNo AS requested_rollNo, u2.gender AS requested_gender, u2.year AS requested_year
-            FROM prom_night_requests r
-            JOIN users u1 ON r.requester_id = u1.id
-            JOIN users u2 ON r.requested_id = u2.id
-            WHERE r.status = 'accepted'
-        `);
-
-        const values = [
-            [
-                'Request ID', 'Status', 'Request Time', 'Requester Name', 'Requester Email', 'Requester RollNo', 'Requester Gender', 'Requester Year',
-                'Requested Name', 'Requested Email', 'Requested RollNo', 'Requested Gender', 'Requested Year'
-            ],
-            ...rows.map(row => [
-                row.request_id, row.status, row.request_time,
-                row.requester_name, row.requester_email, row.requester_rollNo, row.requester_gender, row.requester_year,
-                row.requested_name, row.requested_email, row.requested_rollNo, row.requested_gender, row.requested_year
-            ]),
-        ];
-
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: 'Sheet1!A1', 
-            valueInputOption: 'RAW',
-            resource: { values },
-        });
-
-        console.log("Data successfully exported to Google Sheets.");
-    } catch (error) {
-        console.error("Error exporting data to Google Sheets:", error);
-    }
-}
-
-// Set up a cron job to run every hour
-cron.schedule('0 * * * *', async () => {
-    console.log('Running cron job to export data to Google Sheets...');
-    await fetchDataAndExportToGoogleSheet();
-});
-
-
-
-(async () => {
-    console.log('Exporting initial data to Google Sheets on server start...');
-    await fetchDataAndExportToGoogleSheet();
-})();
-
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 })
+
 
 
 
